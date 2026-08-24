@@ -71,7 +71,7 @@ func rewriteFile(fileSet *token.FileSet, pattern, replace ast.Expr, p *ast.File)
 		val = apply(rewriteVal, val)
 		clear(m)
 		if match(m, pat, val) {
-			val = subst(m, repl, reflect.ValueOf(val.Interface().(ast.Node).Pos()))
+			val = substNode(m, repl, val)
 		}
 		return val
 	}
@@ -79,6 +79,25 @@ func rewriteFile(fileSet *token.FileSet, pattern, replace ast.Expr, p *ast.File)
 	r := apply(rewriteVal, reflect.ValueOf(p)).Interface().(*ast.File)
 	r.Comments = cmap.Filter(r).Comments() // recreate comments list
 	return r
+}
+
+// substNode substitutes the wildcards in repl with the values matched in m,
+// using the position of orig for the new tokens. If the substitution cannot
+// be assigned into orig's position in the tree (for example, replacing an
+// identifier with a qualified name such as x.y where only an identifier is
+// allowed), substNode leaves orig unchanged rather than panicking.
+func substNode(m map[string]reflect.Value, repl, orig reflect.Value) (result reflect.Value) {
+	defer func() {
+		if e := recover(); e != nil {
+			if s, ok := e.(string); ok &&
+				(strings.Contains(s, "type mismatch") || strings.Contains(s, "not assignable")) {
+				result = orig // rewrite is not possible here; leave orig unchanged
+				return
+			}
+			panic(e)
+		}
+	}()
+	return subst(m, repl, reflect.ValueOf(orig.Interface().(ast.Node).Pos()))
 }
 
 // set is a wrapper for x.Set(y); it protects the caller from panics if x cannot be changed to y.
